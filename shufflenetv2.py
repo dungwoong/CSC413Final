@@ -26,7 +26,7 @@ class Swish(nn.Module):
         return feat * torch.sigmoid(feat)
 
 
-class SEBlock(nn.Module):
+class SLEBlock(nn.Module):
     """
     SLE block
     """
@@ -63,6 +63,28 @@ def channel_shuffle(x: Tensor, groups: int) -> Tensor:
     x = x.view(batchsize, -1, height, width)
 
     return x
+
+
+class SEBlock(nn.Module):
+
+    def __init__(self, oup, reduction):
+        """
+
+        :param oup: features
+        :param reduction: reduction factor
+        """
+        mid_channels = oup // reduction
+        self.se_block = nn.Sequential(nn.AdaptiveAvgPool2d(output_size=1),
+                                      nn.Conv2d(oup, mid_channels, kernel_size=1, bias=True),
+                                      # conv1x1 works with the matrix shape better
+                                      nn.ReLU(),
+                                      nn.Conv2d(mid_channels, oup, kernel_size=1, bias=True),
+                                      nn.Sigmoid()
+                                      )
+
+    def forward(self, x):
+        w = self.se_block(x)
+        return w * x
 
 
 class InvertedResidual(nn.Module):
@@ -137,6 +159,9 @@ class ShuffleNetV2(nn.Module):
             stages_out_channels: List[int],
             num_classes: int = 1000,
             inverted_residual: Callable[..., nn.Module] = InvertedResidual,
+            se: bool = False,
+            stages_reductions: List = [0, 0, 0],
+            sle_config=None  # (from, to) list, starting at 0
     ) -> None:
         super().__init__()
 
@@ -145,6 +170,9 @@ class ShuffleNetV2(nn.Module):
         if len(stages_out_channels) != 5:
             raise ValueError("expected stages_out_channels as list of 5 positive ints")
         self._stage_out_channels = stages_out_channels
+        if len(stages_reductions) != 3:
+            raise ValueError("expected stages_reductions as a list of 3 positive ints")
+        self._stages_reductions = stages_reductions if stages_reductions else None
 
         input_channels = 3
         output_channels = self._stage_out_channels[0]
@@ -163,14 +191,23 @@ class ShuffleNetV2(nn.Module):
         self.stage4: nn.Sequential
 
         # repeats the residual blocks here for each stage
-        # TODO change this to accomodate skip layer excitation
+        idx = 0
         stage_names = [f"stage{i}" for i in [2, 3, 4]]
-        for name, repeats, output_channels in zip(stage_names, stages_repeats, self._stage_out_channels[1:]):
+        for name, repeats, output_channels, reduction in zip(stage_names, stages_repeats, self._stage_out_channels[1:]):
             seq = [inverted_residual(input_channels, output_channels, 2)]
+
+            # [ADDITION] added SE block
+            if se:
+                seq.append(SEBlock(output_channels, self._stages_reductions[idx]))
             for i in range(repeats - 1):
                 seq.append(inverted_residual(output_channels, output_channels, 1))
+
+                # [ADDITION] added SE block
+                if se:
+                    seq.append(SEBlock(output_channels, self._stages_reductions[idx]))
             setattr(self, name, nn.Sequential(*seq))
             input_channels = output_channels
+            idx += 1
 
         output_channels = self._stage_out_channels[-1]
         self.conv5 = nn.Sequential(
@@ -181,42 +218,66 @@ class ShuffleNetV2(nn.Module):
 
         self.fc = nn.Linear(output_channels, num_classes)
 
-        # SEBlocks
-        self.se_1 = SEBlock(self._stage_out_channels[0], self._stage_out_channels[1])  # maxpool and stage2
-        self.se_2 = SEBlock(self._stage_out_channels[1], self._stage_out_channels[2])  # stage2 to stage3
-        self.se_3 = SEBlock(self._stage_out_channels[2], self._stage_out_channels[3])  # stage3 to stage4
+        self.sles = dict()
+        for from_layer, to_layer in sle_config:
+            assert 0 <= from_layer < to_layer < 5, "SLEs must connect to future stages, stages are 0-4"
+            self.sles[from_layer, to_layer] = SLEBlock(self._stage_out_channels[from_layer],
+                                                       self._stage_out_channels[to_layer])
 
-    def _forward_SE(self, x: Tensor, return_intermediate=False) -> Tensor:
-        # todo add the decoders
-        # I think it would be best to return intermediate layer outputs here as well, and put them through
-        # a decoder afterwards, so it's not just permanently part of the inference process
-        x = self.conv1(x)
-        p1 = self.maxpool(x)
-        stage2 = self.stage2(p1)
-        stage2 = self.se_1(p1, stage2)
-        stage3 = self.stage3(stage2)
-        stage3 = self.se_2(stage2, stage3)
-        stage4 = self.stage4(stage3)
-        stage4 = self.se_3(stage3, stage4)
-        final_conv = self.conv5(stage4)
-        final_conv = final_conv.mean([2, 3])  # global pool along H W
+    def _new_forward(self, x):
+        outputs = [None, None, None, None, None]  # stages 1 to 5, I guess 0 to 4
+        outputs[0] = self.maxpool(self.conv1(x))
+        outputs[1] = self.stage2(outputs[0])
+        self.add_sle(1)
+        outputs[2] = self.stage3(outputs[1])
+        self.add_sle(2)
+        outputs[3] = self.stage4(outputs[2])
+        self.add_sle(3)
+        outputs[4] = self.conv5(outputs[3])
+        self.add_sle(4)
+        final_conv = outputs[4].mean([2, 3]) # global avg pool
         return self.fc(final_conv)
 
-    def _forward_impl(self, x: Tensor) -> Tensor:
-        # See note [TorchScript super()]
-        x = self.conv1(x)
-        x = self.maxpool(x)
-        x = self.stage2(x)
-        x = self.stage3(x)
-        x = self.stage4(x)
-        x = self.conv5(x)
-        x = x.mean([2, 3])  # globalpool
-        x = self.fc(x)
-        return x
+    def add_sle(self, outputs, layer):
+        """
+        Applies SLE on the current layer output
+        :param outputs: list of 5 things
+        :param layer: int, current layer we are considering
+        :return:
+        """
+        for from_layer, to_layer in self.sles:
+            if to_layer == layer:
+                outputs[layer] = self.sles[(from_layer, to_layer)](outputs[from_layer], outputs[to_layer])
+                return
+
+    # def _forward_SLE(self, x: Tensor) -> Tensor:
+    #     x = self.conv1(x)
+    #     p1 = self.maxpool(x)
+    #     stage2 = self.stage2(p1)
+    #     stage2 = self.se_1(p1, stage2)
+    #     stage3 = self.stage3(stage2)
+    #     stage3 = self.se_2(stage2, stage3)
+    #     stage4 = self.stage4(stage3)
+    #     stage4 = self.se_3(stage3, stage4)
+    #     final_conv = self.conv5(stage4)
+    #     final_conv = final_conv.mean([2, 3])  # global pool along H W
+    #     return self.fc(final_conv)
+    #
+    # def _forward_impl(self, x: Tensor) -> Tensor:
+    #     # See note [TorchScript super()]
+    #     x = self.conv1(x)
+    #     x = self.maxpool(x)
+    #     x = self.stage2(x)
+    #     x = self.stage3(x)
+    #     x = self.stage4(x)
+    #     x = self.conv5(x)
+    #     x = x.mean([2, 3])  # globalpool
+    #     x = self.fc(x)
+    #     return x
 
     def forward(self, x: Tensor, **kwargs) -> Tensor:
         # return self._forward_impl(x)
-        return self._forward_SE(x, **kwargs)
+        return self._new_forward(x, **kwargs)
 
 
 def shufflenet_v2_x0_5(
