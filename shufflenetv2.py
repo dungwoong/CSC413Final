@@ -2,7 +2,7 @@
 # FastGAN https://github.com/odegeasslbc/FastGAN-pytorch/blob/main/models.py
 
 from functools import partial
-from typing import Any, Callable, List, Optional
+from typing import Any, Callable, List, Optional, Tuple
 
 import torch
 import torch.nn as nn
@@ -161,7 +161,7 @@ class ShuffleNetV2(nn.Module):
             inverted_residual: Callable[..., nn.Module] = InvertedResidual,
             se: bool = False,
             stages_reductions: List = [0, 0, 0],
-            sle_config=None  # (from, to) list, starting at 0
+            sle_config: List[Tuple] = None  # (from, to) list, starting at 0
     ) -> None:
         super().__init__()
 
@@ -224,6 +224,7 @@ class ShuffleNetV2(nn.Module):
             self.sles[from_layer, to_layer] = SLEBlock(self._stage_out_channels[from_layer],
                                                        self._stage_out_channels[to_layer])
 
+    # [ADDITION] New forward method with SLEs
     def _new_forward(self, x):
         outputs = [None, None, None, None, None]  # stages 1 to 5, I guess 0 to 4
         outputs[0] = self.maxpool(self.conv1(x))
@@ -238,10 +239,13 @@ class ShuffleNetV2(nn.Module):
         final_conv = outputs[4].mean([2, 3]) # global avg pool
         return self.fc(final_conv)
 
+    # [ADDITION] Adding SLE excitation for each stage. Note nothing will happen if self.sles is empty dictionary.
     def add_sle(self, outputs, layer):
         """
-        Applies SLE on the current layer output
-        :param outputs: list of 5 things
+        Applies SLE on the current layer output.
+
+        Supports 1 SLE going to each stage, from a previous stage btw
+        :param outputs: list of 5 things, representing output of each stage
         :param layer: int, current layer we are considering
         :return:
         """
