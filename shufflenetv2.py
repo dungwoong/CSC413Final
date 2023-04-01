@@ -35,8 +35,20 @@ class SLEBlock(nn.Module):
         super().__init__()
         self.main = nn.Sequential(nn.AdaptiveAvgPool2d(4),
                                   # they used SiLU instead of LeakyReLU
-                                  conv2d(ch_in, ch_out, 4, 1, 0, bias=False), Swish(),
-                                  conv2d(ch_out, ch_out, 1, 1, 0, bias=False), nn.Sigmoid())
+                                  nn.Conv2d(ch_in, ch_out, 4, 1, 0, bias=False), Swish(),
+                                  nn.Conv2d(ch_out, ch_out, 1, 1, 0, bias=False),
+                                  nn.Sigmoid())
+        self.ch_in, self.ch_out = ch_in, ch_out
+        self.flops = None
+
+    def calculate_flops(self, big_size, small_size):
+        # TODO not counting adaptive pooling. Flops count both mult. and addition
+        self.flops = 0
+        self.flops += 16 * self.ch_in * self.ch_out * 2  # first conv2d
+        self.flops += self.ch_out * 2  # swish, 1 per sigmoid(not accurate) + 1 for mult
+        self.flops += self.ch_out * self.ch_out * 2  # second conv2d
+        self.flops += self.ch_out  # sigmoid (not accurate)
+        self.flops += big_size * big_size  # element wise mult for excitation of second map
 
     def forward(self, feat_small, feat_big):
         return feat_big * self.main(feat_small)
@@ -73,6 +85,7 @@ class SEBlock(nn.Module):
         :param oup: features
         :param reduction: reduction factor
         """
+        super().__init__()
         mid_channels = oup // reduction
         self.se_block = nn.Sequential(nn.AdaptiveAvgPool2d(output_size=1),
                                       nn.Conv2d(oup, mid_channels, kernel_size=1, bias=True),
@@ -81,6 +94,18 @@ class SEBlock(nn.Module):
                                       nn.Conv2d(mid_channels, oup, kernel_size=1, bias=True),
                                       nn.Sigmoid()
                                       )
+        self.oup = oup
+        self.mid_channels = mid_channels
+
+        self.flops = None
+
+    def calculate_flops(self, input_size):
+        self.flops = 0
+        self.flops += self.oup * self.mid_channels * 2  # first conv
+        self.flops += self.mid_channels  # relu
+        self.flops += self.oup * self.mid_channels * 2  # second conv
+        self.flops += self.oup  # sigmoid, not accurate
+        self.flops += input_size * input_size * self.oup  # element-wise multiplication for excitation
 
     def forward(self, x):
         w = self.se_block(x)
@@ -160,10 +185,13 @@ class ShuffleNetV2(nn.Module):
             num_classes: int = 1000,
             inverted_residual: Callable[..., nn.Module] = InvertedResidual,
             se: bool = False,
-            stages_reductions: List = [0, 0, 0],
-            sle_config: List[Tuple] = None  # (from, to) list, starting at 0
+            stages_reductions: List = [0, 0, 0],  # reduction for 2, 3, 4
+            sle_config: List[Tuple] = [],  # (from, to) list, starting at 0
+            label='ShuffleNetV2'
     ) -> None:
+        # 01234 is conv1, stage2, stage3, stage4, conv5
         super().__init__()
+        self.label = label
 
         if len(stages_repeats) != 3:
             raise ValueError("expected stages_repeats as list of 3 positive ints")
@@ -183,7 +211,7 @@ class ShuffleNetV2(nn.Module):
         )
         input_channels = output_channels
 
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        # self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
 
         # Static annotations for mypy
         self.stage2: nn.Sequential
@@ -193,7 +221,7 @@ class ShuffleNetV2(nn.Module):
         # repeats the residual blocks here for each stage
         idx = 0
         stage_names = [f"stage{i}" for i in [2, 3, 4]]
-        for name, repeats, output_channels, reduction in zip(stage_names, stages_repeats, self._stage_out_channels[1:]):
+        for name, repeats, output_channels in zip(stage_names, stages_repeats, self._stage_out_channels[1:]):
             seq = [inverted_residual(input_channels, output_channels, 2)]
 
             # [ADDITION] added SE block
@@ -224,19 +252,23 @@ class ShuffleNetV2(nn.Module):
             self.sles[from_layer, to_layer] = SLEBlock(self._stage_out_channels[from_layer],
                                                        self._stage_out_channels[to_layer])
 
+    def move_sles(self, device):
+        for k in self.sles:
+            self.sles[k] = self.sles[k].to(device)
+
     # [ADDITION] New forward method with SLEs
     def _new_forward(self, x):
         outputs = [None, None, None, None, None]  # stages 1 to 5, I guess 0 to 4
-        outputs[0] = self.maxpool(self.conv1(x))
+        outputs[0] = self.conv1(x)
         outputs[1] = self.stage2(outputs[0])
-        self.add_sle(1)
+        self.add_sle(outputs, 1)
         outputs[2] = self.stage3(outputs[1])
-        self.add_sle(2)
+        self.add_sle(outputs, 2)
         outputs[3] = self.stage4(outputs[2])
-        self.add_sle(3)
+        self.add_sle(outputs, 3)
         outputs[4] = self.conv5(outputs[3])
-        self.add_sle(4)
-        final_conv = outputs[4].mean([2, 3]) # global avg pool
+        self.add_sle(outputs, 4)
+        final_conv = outputs[4].mean([2, 3])  # global avg pool
         return self.fc(final_conv)
 
     # [ADDITION] Adding SLE excitation for each stage. Note nothing will happen if self.sles is empty dictionary.
@@ -253,6 +285,17 @@ class ShuffleNetV2(nn.Module):
             if to_layer == layer:
                 outputs[layer] = self.sles[(from_layer, to_layer)](outputs[from_layer], outputs[to_layer])
                 return
+
+    def get_params(self):
+        total = sum(p.numel() for p in self.parameters())
+        trainable = sum(p.numel() for p in self.parameters() if p.requires_grad)
+        for k in self.sles:
+            t = sum(p.numel() for p in self.sles[k].parameters())
+            tr = sum(p.numel() for p in self.sles[k].parameters() if p.requires_grad)
+            total += t
+            trainable += tr
+            # print(f"SLE got {tr} trainable params")
+        return trainable, total
 
     # def _forward_SLE(self, x: Tensor) -> Tensor:
     #     x = self.conv1(x)
@@ -284,115 +327,29 @@ class ShuffleNetV2(nn.Module):
         return self._new_forward(x, **kwargs)
 
 
-def shufflenet_v2_x0_5(
-        *, weights=None, progress: bool = True, **kwargs: Any
-) -> ShuffleNetV2:
-    """
-    Constructs a ShuffleNetV2 architecture with 0.5x output channels, as described in
-    `ShuffleNet V2: Practical Guidelines for Efficient CNN Architecture Design
-    <https://arxiv.org/abs/1807.11164>`__.
-    Args:
-        weights (:class:`~torchvision.models.ShuffleNet_V2_X0_5_Weights`, optional): The
-            pretrained weights to use. See
-            :class:`~torchvision.models.ShuffleNet_V2_X0_5_Weights` below for
-            more details, and possible values. By default, no pre-trained
-            weights are used.
-        progress (bool, optional): If True, displays a progress bar of the
-            download to stderr. Default is True.
-        **kwargs: parameters passed to the ``torchvision.models.shufflenetv2.ShuffleNetV2``
-            base class. Please refer to the `source code
-            <https://github.com/pytorch/vision/blob/main/torchvision/models/shufflenetv2.py>`_
-            for more details about this class.
-    .. autoclass:: torchvision.models.ShuffleNet_V2_X0_5_Weights
-        :members:
-    """
-    weights = ShuffleNet_V2_X0_5_Weights.verify(weights)
-
-    return _shufflenetv2(weights, progress, [4, 8, 4], [24, 48, 96, 192, 1024], **kwargs)
+STAGES_REPEATS = [4, 8, 4]
+STAGES_OUT_CHANNELS_1 = [24, 116, 232, 464, 1024]
+STAGES_OUT_CHANNELS_1_5 = [24, 176, 352, 704, 1024]
 
 
-@register_model()
-@handle_legacy_interface(weights=("pretrained", ShuffleNet_V2_X1_0_Weights.IMAGENET1K_V1))
-def shufflenet_v2_x1_0(
-        *, weights: Optional[ShuffleNet_V2_X1_0_Weights] = None, progress: bool = True, **kwargs: Any
-) -> ShuffleNetV2:
-    """
-    Constructs a ShuffleNetV2 architecture with 1.0x output channels, as described in
-    `ShuffleNet V2: Practical Guidelines for Efficient CNN Architecture Design
-    <https://arxiv.org/abs/1807.11164>`__.
-    Args:
-        weights (:class:`~torchvision.models.ShuffleNet_V2_X1_0_Weights`, optional): The
-            pretrained weights to use. See
-            :class:`~torchvision.models.ShuffleNet_V2_X1_0_Weights` below for
-            more details, and possible values. By default, no pre-trained
-            weights are used.
-        progress (bool, optional): If True, displays a progress bar of the
-            download to stderr. Default is True.
-        **kwargs: parameters passed to the ``torchvision.models.shufflenetv2.ShuffleNetV2``
-            base class. Please refer to the `source code
-            <https://github.com/pytorch/vision/blob/main/torchvision/models/shufflenetv2.py>`_
-            for more details about this class.
-    .. autoclass:: torchvision.models.ShuffleNet_V2_X1_0_Weights
-        :members:
-    """
-    weights = ShuffleNet_V2_X1_0_Weights.verify(weights)
-
-    return _shufflenetv2(weights, progress, [4, 8, 4], [24, 116, 232, 464, 1024], **kwargs)
+def base_model(device):
+    return ShuffleNetV2(stages_repeats=STAGES_REPEATS,
+                        stages_out_channels=STAGES_OUT_CHANNELS_1,
+                        label="ShuffleNetV2").to(device)
 
 
-@register_model()
-@handle_legacy_interface(weights=("pretrained", ShuffleNet_V2_X1_5_Weights.IMAGENET1K_V1))
-def shufflenet_v2_x1_5(
-        *, weights: Optional[ShuffleNet_V2_X1_5_Weights] = None, progress: bool = True, **kwargs: Any
-) -> ShuffleNetV2:
-    """
-    Constructs a ShuffleNetV2 architecture with 1.5x output channels, as described in
-    `ShuffleNet V2: Practical Guidelines for Efficient CNN Architecture Design
-    <https://arxiv.org/abs/1807.11164>`__.
-    Args:
-        weights (:class:`~torchvision.models.ShuffleNet_V2_X1_5_Weights`, optional): The
-            pretrained weights to use. See
-            :class:`~torchvision.models.ShuffleNet_V2_X1_5_Weights` below for
-            more details, and possible values. By default, no pre-trained
-            weights are used.
-        progress (bool, optional): If True, displays a progress bar of the
-            download to stderr. Default is True.
-        **kwargs: parameters passed to the ``torchvision.models.shufflenetv2.ShuffleNetV2``
-            base class. Please refer to the `source code
-            <https://github.com/pytorch/vision/blob/main/torchvision/models/shufflenetv2.py>`_
-            for more details about this class.
-    .. autoclass:: torchvision.models.ShuffleNet_V2_X1_5_Weights
-        :members:
-    """
-    weights = ShuffleNet_V2_X1_5_Weights.verify(weights)
-
-    return _shufflenetv2(weights, progress, [4, 8, 4], [24, 176, 352, 704, 1024], **kwargs)
+def se_model(device):
+    return ShuffleNetV2(stages_repeats=STAGES_REPEATS,
+                        stages_out_channels=STAGES_OUT_CHANNELS_1,
+                        se=True,
+                        stages_reductions=[8, 16, 16],
+                        label="ShuffleNetV2+SE").to(device)
 
 
-@register_model()
-@handle_legacy_interface(weights=("pretrained", ShuffleNet_V2_X2_0_Weights.IMAGENET1K_V1))
-def shufflenet_v2_x2_0(
-        *, weights: Optional[ShuffleNet_V2_X2_0_Weights] = None, progress: bool = True, **kwargs: Any
-) -> ShuffleNetV2:
-    """
-    Constructs a ShuffleNetV2 architecture with 2.0x output channels, as described in
-    `ShuffleNet V2: Practical Guidelines for Efficient CNN Architecture Design
-    <https://arxiv.org/abs/1807.11164>`__.
-    Args:
-        weights (:class:`~torchvision.models.ShuffleNet_V2_X2_0_Weights`, optional): The
-            pretrained weights to use. See
-            :class:`~torchvision.models.ShuffleNet_V2_X2_0_Weights` below for
-            more details, and possible values. By default, no pre-trained
-            weights are used.
-        progress (bool, optional): If True, displays a progress bar of the
-            download to stderr. Default is True.
-        **kwargs: parameters passed to the ``torchvision.models.shufflenetv2.ShuffleNetV2``
-            base class. Please refer to the `source code
-            <https://github.com/pytorch/vision/blob/main/torchvision/models/shufflenetv2.py>`_
-            for more details about this class.
-    .. autoclass:: torchvision.models.ShuffleNet_V2_X2_0_Weights
-        :members:
-    """
-    weights = ShuffleNet_V2_X2_0_Weights.verify(weights)
-
-    return _shufflenetv2(weights, progress, [4, 8, 4], [24, 244, 488, 976, 2048], **kwargs)
+def sle_model(device):
+    s = ShuffleNetV2(stages_repeats=STAGES_REPEATS,
+                     stages_out_channels=STAGES_OUT_CHANNELS_1,
+                     sle_config=[(1, 2), (2, 3), (3, 4)],
+                     label="ShuffleNetV2+SLE").to(device)
+    s.move_sles(device)
+    return s
