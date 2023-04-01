@@ -245,9 +245,9 @@ class ShuffleNetV2(nn.Module):
 
         self.fc = nn.Linear(output_channels, num_classes)
 
-        self.se_1 = SEBlock(self._stage_out_channels[0], self._stage_out_channels[1])  # maxpool and stage2
-        self.se_2 = SEBlock(self._stage_out_channels[1], self._stage_out_channels[2])  # stage2 to stage3
-        self.se_3 = SEBlock(self._stage_out_channels[2], self._stage_out_channels[3])  # stage3 to stage4
+        self.se_1 = SLEBlock(self._stage_out_channels[0], self._stage_out_channels[1])  # maxpool and stage2
+        self.se_2 = SLEBlock(self._stage_out_channels[1], self._stage_out_channels[2])  # stage2 to stage3
+        self.se_3 = SLEBlock(self._stage_out_channels[2], self._stage_out_channels[3])  # stage3 to stage4
 
     def get_params(self):
         total = sum(p.numel() for p in self.parameters())
