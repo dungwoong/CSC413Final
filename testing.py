@@ -1,5 +1,7 @@
 import shufflenetv2
 import torch
+from ptflops import get_model_complexity_info
+import pandas as pd
 
 
 def get_device():
@@ -17,16 +19,28 @@ def test_model_works(mod, device, batch_size=1):
     mod(test_example)
 
 
-def report_params(mod):
-    trainable, total = mod.get_params()
-    print(f"{mod.label}: {trainable} trainable parameters, {total} total parameters")
+def get_params(mods, outputpath):
+    ret = {"Model": [],
+           "Parameters": [],
+           "MMac": []}
+    for mod in mods:
+        macs, params = get_model_complexity_info(mod, (3, 32, 32), as_strings=False, verbose=False)
+        ret['Model'].append(mod.label)
+        ret['Parameters'].append(params)
+        ret['MMac'].append(macs)
+    d = pd.DataFrame(ret)
+    d.to_csv(outputpath, index=False)
+
+
+def test_all_models():
+    d = get_device()
+    test_model_works(shufflenetv2.base_model(d), d)
+    test_model_works(shufflenetv2.se_model(d), d)
+    test_model_works(shufflenetv2.sle_model(d), d)
 
 
 if __name__ == '__main__':
     d = get_device()
-    report_params(shufflenetv2.base_model(d))
-    report_params(shufflenetv2.se_model(d))
-    report_params(shufflenetv2.sle_model(d))
-    # test_model_works(shufflenetv2.base_model(d), d)
-    # test_model_works(shufflenetv2.se_model(d), d)
-    # test_model_works(shufflenetv2.sle_model(d), d)
+    get_params([shufflenetv2.base_model(d),
+                shufflenetv2.se_model(d),
+                shufflenetv2.sle_model(d)], outputpath="model_stats.csv")

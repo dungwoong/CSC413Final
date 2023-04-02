@@ -41,15 +41,6 @@ class SLEBlock(nn.Module):
         self.ch_in, self.ch_out = ch_in, ch_out
         self.flops = None
 
-    def calculate_flops(self, big_size, small_size):
-        # TODO not counting adaptive pooling. Flops count both mult. and addition
-        self.flops = 0
-        self.flops += 16 * self.ch_in * self.ch_out * 2  # first conv2d
-        self.flops += self.ch_out * 2  # swish, 1 per sigmoid(not accurate) + 1 for mult
-        self.flops += self.ch_out * self.ch_out * 2  # second conv2d
-        self.flops += self.ch_out  # sigmoid (not accurate)
-        self.flops += big_size * big_size  # element wise mult for excitation of second map
-
     def forward(self, feat_small, feat_big):
         return feat_big * self.main(feat_small)
 
@@ -98,14 +89,6 @@ class SEBlock(nn.Module):
         self.mid_channels = mid_channels
 
         self.flops = None
-
-    def calculate_flops(self, input_size):
-        self.flops = 0
-        self.flops += self.oup * self.mid_channels * 2  # first conv
-        self.flops += self.mid_channels  # relu
-        self.flops += self.oup * self.mid_channels * 2  # second conv
-        self.flops += self.oup  # sigmoid, not accurate
-        self.flops += input_size * input_size * self.oup  # element-wise multiplication for excitation
 
     def forward(self, x):
         w = self.se_block(x)
@@ -246,85 +229,87 @@ class ShuffleNetV2(nn.Module):
 
         self.fc = nn.Linear(output_channels, num_classes)
 
-        self.sles = dict()
-        for from_layer, to_layer in sle_config:
-            assert 0 <= from_layer < to_layer < 5, "SLEs must connect to future stages, stages are 0-4"
-            self.sles[from_layer, to_layer] = SLEBlock(self._stage_out_channels[from_layer],
-                                                       self._stage_out_channels[to_layer])
+        # self.sles = dict()
+        # for from_layer, to_layer in sle_config:
+        #     assert 0 <= from_layer < to_layer < 5, "SLEs must connect to future stages, stages are 0-4"
+        #     self.sles[from_layer, to_layer] = SLEBlock(self._stage_out_channels[from_layer],
+        #                                                self._stage_out_channels[to_layer])
 
-    def move_sles(self, device):
-        for k in self.sles:
-            self.sles[k] = self.sles[k].to(device)
-
-    # [ADDITION] New forward method with SLEs
-    def _new_forward(self, x):
-        outputs = [None, None, None, None, None]  # stages 1 to 5, I guess 0 to 4
-        outputs[0] = self.conv1(x)
-        outputs[1] = self.stage2(outputs[0])
-        self.add_sle(outputs, 1)
-        outputs[2] = self.stage3(outputs[1])
-        self.add_sle(outputs, 2)
-        outputs[3] = self.stage4(outputs[2])
-        self.add_sle(outputs, 3)
-        outputs[4] = self.conv5(outputs[3])
-        self.add_sle(outputs, 4)
-        final_conv = outputs[4].mean([2, 3])  # global avg pool
-        return self.fc(final_conv)
-
-    # [ADDITION] Adding SLE excitation for each stage. Note nothing will happen if self.sles is empty dictionary.
-    def add_sle(self, outputs, layer):
-        """
-        Applies SLE on the current layer output.
-
-        Supports 1 SLE going to each stage, from a previous stage btw
-        :param outputs: list of 5 things, representing output of each stage
-        :param layer: int, current layer we are considering
-        :return:
-        """
-        for from_layer, to_layer in self.sles:
-            if to_layer == layer:
-                outputs[layer] = self.sles[(from_layer, to_layer)](outputs[from_layer], outputs[to_layer])
-                return
-
-    def get_params(self):
-        total = sum(p.numel() for p in self.parameters())
-        trainable = sum(p.numel() for p in self.parameters() if p.requires_grad)
-        for k in self.sles:
-            t = sum(p.numel() for p in self.sles[k].parameters())
-            tr = sum(p.numel() for p in self.sles[k].parameters() if p.requires_grad)
-            total += t
-            trainable += tr
-            # print(f"SLE got {tr} trainable params")
-        return trainable, total
-
-    # def _forward_SLE(self, x: Tensor) -> Tensor:
-    #     x = self.conv1(x)
-    #     p1 = self.maxpool(x)
-    #     stage2 = self.stage2(p1)
-    #     stage2 = self.se_1(p1, stage2)
-    #     stage3 = self.stage3(stage2)
-    #     stage3 = self.se_2(stage2, stage3)
-    #     stage4 = self.stage4(stage3)
-    #     stage4 = self.se_3(stage3, stage4)
-    #     final_conv = self.conv5(stage4)
-    #     final_conv = final_conv.mean([2, 3])  # global pool along H W
+    # def move_sles(self, device):
+    #     for k in self.sles:
+    #         self.sles[k] = self.sles[k].to(device)
+    #
+    # # [ADDITION] New forward method with SLEs
+    # def _new_forward(self, x):
+    #     outputs = [None, None, None, None, None]  # stages 1 to 5, I guess 0 to 4
+    #     outputs[0] = self.conv1(x)
+    #     outputs[1] = self.stage2(outputs[0])
+    #     self.add_sle(outputs, 1)
+    #     outputs[2] = self.stage3(outputs[1])
+    #     self.add_sle(outputs, 2)
+    #     outputs[3] = self.stage4(outputs[2])
+    #     self.add_sle(outputs, 3)
+    #     outputs[4] = self.conv5(outputs[3])
+    #     self.add_sle(outputs, 4)
+    #     final_conv = outputs[4].mean([2, 3])  # global avg pool
     #     return self.fc(final_conv)
     #
-    # def _forward_impl(self, x: Tensor) -> Tensor:
-    #     # See note [TorchScript super()]
-    #     x = self.conv1(x)
-    #     x = self.maxpool(x)
-    #     x = self.stage2(x)
-    #     x = self.stage3(x)
-    #     x = self.stage4(x)
-    #     x = self.conv5(x)
-    #     x = x.mean([2, 3])  # globalpool
-    #     x = self.fc(x)
-    #     return x
+    def _forward_impl(self, x):
+        s1 = self.conv1(x)
+        s2 = self.stage2(s1)
+        s3 = self.stage3(s2)
+        s4 = self.stage4(s3)
+        s5 = self.conv5(s4)
+        final_conv = s5.mean([2, 3])  # global avg pool
+        return self.fc(final_conv)
+    #
+    # # [ADDITION] Adding SLE excitation for each stage. Note nothing will happen if self.sles is empty dictionary.
+    # def add_sle(self, outputs, layer):
+    #     """
+    #     Applies SLE on the current layer output.
+    #
+    #     Supports 1 SLE going to each stage, from a previous stage btw
+    #     :param outputs: list of 5 things, representing output of each stage
+    #     :param layer: int, current layer we are considering
+    #     :return:
+    #     """
+    #     for from_layer, to_layer in self.sles:
+    #         if to_layer == layer:
+    #             outputs[layer] = self.sles[(from_layer, to_layer)](outputs[from_layer], outputs[to_layer])
+    #             return
 
     def forward(self, x: Tensor, **kwargs) -> Tensor:
         # return self._forward_impl(x)
-        return self._new_forward(x, **kwargs)
+        return self._forward_impl(x, **kwargs)
+
+
+class ShuffleNetSLE(ShuffleNetV2):
+    def __init__(
+            self,
+            *args, **kwargs
+    ) -> None:
+        # 01234 is conv1, stage2, stage3, stage4, conv5
+        super().__init__(*args, **kwargs)
+
+        self.se_1 = SLEBlock(self._stage_out_channels[0], self._stage_out_channels[1])  # maxpool and stage2
+        self.se_2 = SLEBlock(self._stage_out_channels[1], self._stage_out_channels[2])  # stage2 to stage3
+        self.se_3 = SLEBlock(self._stage_out_channels[2], self._stage_out_channels[3])  # stage3 to stage4
+
+    def _forward_SLE(self, x: Tensor) -> Tensor:
+        p1 = self.conv1(x)
+        # p1 = self.maxpool(x)
+        stage2 = self.stage2(p1)
+        stage2 = self.se_1(p1, stage2)
+        stage3 = self.stage3(stage2)
+        stage3 = self.se_2(stage2, stage3)
+        stage4 = self.stage4(stage3)
+        stage4 = self.se_3(stage3, stage4)
+        final_conv = self.conv5(stage4)
+        final_conv = final_conv.mean([2, 3])  # global pool along H W
+        return self.fc(final_conv)
+
+    def forward(self, x):
+        return self._forward_SLE(x)
 
 
 STAGES_REPEATS = [4, 8, 4]
@@ -346,10 +331,16 @@ def se_model(device):
                         label="ShuffleNetV2+SE").to(device)
 
 
+# def sle_model(device):
+#     s = ShuffleNetV2(stages_repeats=STAGES_REPEATS,
+#                      stages_out_channels=STAGES_OUT_CHANNELS_1,
+#                      sle_config=[(1, 2), (2, 3), (3, 4)],
+#                      label="ShuffleNetV2+SLE").to(device)
+#     s.move_sles(device)
+#     return s
+
 def sle_model(device):
-    s = ShuffleNetV2(stages_repeats=STAGES_REPEATS,
-                     stages_out_channels=STAGES_OUT_CHANNELS_1,
-                     sle_config=[(1, 2), (2, 3), (3, 4)],
-                     label="ShuffleNetV2+SLE").to(device)
-    s.move_sles(device)
+    s = ShuffleNetSLE(stages_repeats=STAGES_REPEATS,
+                      stages_out_channels=STAGES_OUT_CHANNELS_1,
+                      label="ShuffleNetV2+SLE").to(device)
     return s
