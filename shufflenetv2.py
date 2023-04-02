@@ -165,7 +165,7 @@ class ShuffleNetV2(nn.Module):
             self,
             stages_repeats: List[int],
             stages_out_channels: List[int],
-            num_classes: int = 1000,
+            num_classes: int = 10,  # cifar10
             inverted_residual: Callable[..., nn.Module] = InvertedResidual,
             se: bool = False,
             stages_reductions: List = [0, 0, 0],  # reduction for 2, 3, 4
@@ -317,18 +317,20 @@ STAGES_OUT_CHANNELS_1 = [24, 116, 232, 464, 1024]
 STAGES_OUT_CHANNELS_1_5 = [24, 176, 352, 704, 1024]
 
 
-def base_model(device):
+def base_model(**kwargs):
     return ShuffleNetV2(stages_repeats=STAGES_REPEATS,
                         stages_out_channels=STAGES_OUT_CHANNELS_1,
-                        label="ShuffleNetV2").to(device)
+                        label="ShuffleNetV2",
+                        **kwargs)
 
 
-def se_model(device):
+def se_model(**kwargs):
     return ShuffleNetV2(stages_repeats=STAGES_REPEATS,
                         stages_out_channels=STAGES_OUT_CHANNELS_1,
                         se=True,
                         stages_reductions=[8, 16, 16],
-                        label="ShuffleNetV2+SE").to(device)
+                        label="ShuffleNetV2+SE",
+                        **kwargs)
 
 
 # def sle_model(device):
@@ -339,8 +341,9 @@ def se_model(device):
 #     s.move_sles(device)
 #     return s
 
-def sle_model(device):
+def sle_model(**kwargs):
     s = ShuffleNetSLE(stages_repeats=STAGES_REPEATS,
                       stages_out_channels=STAGES_OUT_CHANNELS_1,
-                      label="ShuffleNetV2+SLE").to(device)
+                      label="ShuffleNetV2+SLE",
+                      **kwargs)
     return s

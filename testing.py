@@ -34,13 +34,13 @@ def get_params(mods, outputpath):
 
 def test_all_models():
     d = get_device()
-    test_model_works(shufflenetv2.base_model(d), d)
-    test_model_works(shufflenetv2.se_model(d), d)
-    test_model_works(shufflenetv2.sle_model(d), d)
+    test_model_works(shufflenetv2.base_model(), d)
+    test_model_works(shufflenetv2.se_model(), d)
+    test_model_works(shufflenetv2.sle_model(), d)
 
 
 if __name__ == '__main__':
     d = get_device()
-    get_params([shufflenetv2.base_model(d),
-                shufflenetv2.se_model(d),
-                shufflenetv2.sle_model(d)], outputpath="model_stats.csv")
+    get_params([shufflenetv2.base_model(),
+                shufflenetv2.se_model(),
+                shufflenetv2.sle_model()], outputpath="model_stats.csv")
