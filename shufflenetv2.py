@@ -329,7 +329,7 @@ def se_model(**kwargs):
                         stages_out_channels=STAGES_OUT_CHANNELS_1,
                         se=True,
                         stages_reductions=[8, 16, 16],
-                        label="ShuffleNetV2+SE",
+                        label="ShuffleNetV2_SE",
                         **kwargs)
 
 
@@ -344,6 +344,6 @@ def se_model(**kwargs):
 def sle_model(**kwargs):
     s = ShuffleNetSLE(stages_repeats=STAGES_REPEATS,
                       stages_out_channels=STAGES_OUT_CHANNELS_1,
-                      label="ShuffleNetV2+SLE",
+                      label="ShuffleNetV2_SLE",
                       **kwargs)
     return s
