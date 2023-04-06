@@ -69,5 +69,7 @@ def plot_loss_acc_curve(*args, **kwargs):
 # print(f"Top 5: {c/t}, ({c} / {t})")
 # c, t = top1_error(preds, targets)
 # print(f"Top 1: {c/t}, ({c} / {t})")
-df = pd.read_csv('results/sampleresults.csv')
-plot_loss_acc_curve(df)
+labels = torch.ones((64, 1))
+preds = torch.zeros((64, 10))
+preds[:, 1] = 1
+print(top1_error(preds, labels))

@@ -2,6 +2,7 @@
 # FastGAN https://github.com/odegeasslbc/FastGAN-pytorch/blob/main/models.py
 
 from functools import partial
+import math
 from typing import Any, Callable, List, Optional, Tuple
 
 import torch
@@ -193,6 +194,7 @@ class ShuffleNetV2(nn.Module):
             nn.ReLU(inplace=True),
         )
         input_channels = output_channels
+        self.relu = nn.ReLU(inplace=False)
 
         # self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
 
@@ -254,14 +256,25 @@ class ShuffleNetV2(nn.Module):
     #     final_conv = outputs[4].mean([2, 3])  # global avg pool
     #     return self.fc(final_conv)
     #
+    def weights_init(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+                m.weight.data.normal_(0, math.sqrt(2. / n))
+
+            elif isinstance(m, nn.BatchNorm2d):
+                m.weight.data.fill_(1)
+                m.bias.data.zero_()
+
     def _forward_impl(self, x):
-        s1 = self.conv1(x)
+        s1 = self.relu(self.conv1(x))
         s2 = self.stage2(s1)
         s3 = self.stage3(s2)
         s4 = self.stage4(s3)
         s5 = self.conv5(s4)
         final_conv = s5.mean([2, 3])  # global avg pool
         return self.fc(final_conv)
+
     #
     # # [ADDITION] Adding SLE excitation for each stage. Note nothing will happen if self.sles is empty dictionary.
     # def add_sle(self, outputs, layer):
@@ -296,7 +309,7 @@ class ShuffleNetSLE(ShuffleNetV2):
         self.se_3 = SLEBlock(self._stage_out_channels[2], self._stage_out_channels[3])  # stage3 to stage4
 
     def _forward_SLE(self, x: Tensor) -> Tensor:
-        p1 = self.conv1(x)
+        p1 = self.relu(self.conv1(x))
         # p1 = self.maxpool(x)
         stage2 = self.stage2(p1)
         stage2 = self.se_1(p1, stage2)
@@ -313,24 +326,29 @@ class ShuffleNetSLE(ShuffleNetV2):
 
 
 STAGES_REPEATS = [4, 8, 4]
+STAGES_OUT_CHANNELS_0_5 = [24, 48, 96, 192, 1024]
 STAGES_OUT_CHANNELS_1 = [24, 116, 232, 464, 1024]
 STAGES_OUT_CHANNELS_1_5 = [24, 176, 352, 704, 1024]
 
 
 def base_model(**kwargs):
-    return ShuffleNetV2(stages_repeats=STAGES_REPEATS,
-                        stages_out_channels=STAGES_OUT_CHANNELS_1,
-                        label="ShuffleNetV2",
-                        **kwargs)
+    s = ShuffleNetV2(stages_repeats=STAGES_REPEATS,
+                     stages_out_channels=STAGES_OUT_CHANNELS_0_5,
+                     label="ShuffleNetV2",
+                     **kwargs)
+    s.weights_init()
+    return s
 
 
 def se_model(**kwargs):
-    return ShuffleNetV2(stages_repeats=STAGES_REPEATS,
-                        stages_out_channels=STAGES_OUT_CHANNELS_1,
-                        se=True,
-                        stages_reductions=[8, 16, 16],
-                        label="ShuffleNetV2_SE",
-                        **kwargs)
+    s = ShuffleNetV2(stages_repeats=STAGES_REPEATS,
+                     stages_out_channels=STAGES_OUT_CHANNELS_1,
+                     se=True,
+                     stages_reductions=[8, 16, 16],
+                     label="ShuffleNetV2_SE",
+                     **kwargs)
+    s.weights_init()
+    return s
 
 
 # def sle_model(device):
@@ -346,4 +364,5 @@ def sle_model(**kwargs):
                       stages_out_channels=STAGES_OUT_CHANNELS_1,
                       label="ShuffleNetV2_SLE",
                       **kwargs)
+    s.weights_init()
     return s
