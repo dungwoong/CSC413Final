@@ -194,7 +194,6 @@ class ShuffleNetV2(nn.Module):
             nn.ReLU(inplace=True),
         )
         input_channels = output_channels
-        self.relu = nn.ReLU(inplace=False)
 
         # self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
 
@@ -267,7 +266,7 @@ class ShuffleNetV2(nn.Module):
                 m.bias.data.zero_()
 
     def _forward_impl(self, x):
-        s1 = self.relu(self.conv1(x))
+        s1 = self.conv1(x)
         s2 = self.stage2(s1)
         s3 = self.stage3(s2)
         s4 = self.stage4(s3)
