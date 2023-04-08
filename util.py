@@ -30,7 +30,7 @@ def top1_error(predictions, targets):
 
 
 def plot_training_curve(df, tr_column='loss_train', val_column='loss_test', val_label='Validation Loss',
-                        epoch_column='epoch', title='Training vs Validation Loss'):
+                        epoch_column='epoch', title='Training vs Validation Loss', save_path="", save=False):
     """
     You can switch val_label and val_column with top1 accuracy or whatever btw
     """
@@ -55,7 +55,10 @@ def plot_training_curve(df, tr_column='loss_train', val_column='loss_test', val_
     ax.legend()
     plt.grid()
     # show the plot
-    plt.show()
+    if save:
+        plt.savefig(f'{save_path}.jpg')
+    else:
+        plt.show()
 
 
 def plot_loss_acc_curve(*args, **kwargs):
