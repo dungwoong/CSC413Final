@@ -137,16 +137,16 @@ def init_params(net):
     """Init layer parameters."""
     for m in net.modules():
         if isinstance(m, nn.Conv2d):
-            init.kaiming_normal(m.weight, mode='fan_out')
-            if m.bias:
-                init.constant(m.bias, 0)
+            init.kaiming_normal_(m.weight, mode='fan_out')
+            if m.bias is not None:
+                init.constant_(m.bias, 0)
         elif isinstance(m, nn.BatchNorm2d):
-            init.constant(m.weight, 1)
-            init.constant(m.bias, 0)
+            init.constant_(m.weight, 1)
+            init.constant_(m.bias, 0)
         elif isinstance(m, nn.Linear):
-            init.normal(m.weight, std=1e-3)
-            if m.bias:
-                init.constant(m.bias, 0)
+            init.normal_(m.weight, std=1e-3)
+            if m.bias is not None:
+                init.constant_(m.bias, 0)
 
 
 configs = {
@@ -168,3 +168,8 @@ configs = {
         'num_blocks': (3, 7, 3)
     }
 }
+
+if __name__ == "__main__":
+    torch.cuda.empty_cache()
+    mod = ShuffleNetV2(net_size=0.5)
+    init_params(mod)
