@@ -4,8 +4,8 @@ import matplotlib.pyplot as plt
 
 
 def top3_error(predictions, targets):  # even though it says top5, it's top3 ok...
-    if len(predictions.shape) == 1:
-        predictions = predictions.unsqueeze(1)
+    # if len(predictions.shape) == 1:
+    #     predictions = predictions.unsqueeze(1)
     if len(targets.shape) == 1:
         targets = targets.unsqueeze(1)
     with torch.no_grad():
@@ -17,8 +17,8 @@ def top3_error(predictions, targets):  # even though it says top5, it's top3 ok.
 
 
 def top1_error(predictions, targets):
-    if len(predictions.shape) == 1:
-        predictions = predictions.unsqueeze(1)
+    # if len(predictions.shape) == 1:
+    #     predictions = predictions.unsqueeze(1)
     if len(targets.shape) == 1:
         targets = targets.unsqueeze(1)
     with torch.no_grad():

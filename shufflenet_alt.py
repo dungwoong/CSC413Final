@@ -133,6 +133,103 @@ class ShuffleNetV2(nn.Module):
         return out
 
 
+class SEBlock(nn.Module):
+
+    def __init__(self, oup, reduction):
+        """
+
+        :param oup: features
+        :param reduction: reduction factor
+        """
+        super().__init__()
+        mid_channels = oup // reduction
+        self.se_block = nn.Sequential(nn.AdaptiveAvgPool2d(output_size=1),
+                                      nn.Conv2d(oup, mid_channels, kernel_size=1, bias=True),
+                                      # conv1x1 works with the matrix shape better
+                                      nn.ReLU(),
+                                      nn.Conv2d(mid_channels, oup, kernel_size=1, bias=True),
+                                      nn.Sigmoid()
+                                      )
+        self.oup = oup
+        self.mid_channels = mid_channels
+
+        self.flops = None
+
+    def forward(self, x):
+        w = self.se_block(x)
+        return w * x
+
+
+class ShuffleNetSE(ShuffleNetV2):
+    def __init__(self, *args, **kwargs):
+        self.stage = 2
+        super().__init__(*args, **kwargs)
+
+    def _make_layer(self, out_channels, num_blocks):
+        reduction = 8 if self.stage == 2 else 16
+        layers = [DownBlock(self.in_channels, out_channels)]
+        for i in range(num_blocks):
+            layers.append(BasicBlock(out_channels))
+            layers.append(SEBlock(out_channels, reduction))
+            self.in_channels = out_channels
+        self.stage += 1
+        return nn.Sequential(*layers)
+
+
+class Swish(nn.Module):
+    """
+    Also known as SiLU --> sigmoid linear unit
+
+    Applies sigmoid to itself then multiplies
+    """
+
+    def forward(self, feat):
+        return feat * torch.sigmoid(feat)
+
+
+class SLEBlock(nn.Module):
+    """
+    SLE block
+    """
+
+    def __init__(self, ch_in, ch_out):
+        super().__init__()
+        self.main = nn.Sequential(nn.AdaptiveAvgPool2d(4),
+                                  # they used SiLU instead of LeakyReLU
+                                  nn.Conv2d(ch_in, ch_out, 4, 1, 0, bias=False), Swish(),
+                                  nn.Conv2d(ch_out, ch_out, 1, 1, 0, bias=False),
+                                  nn.Sigmoid())
+        self.ch_in, self.ch_out = ch_in, ch_out
+        self.flops = None
+
+    def forward(self, feat_small, feat_big):
+        return feat_big * self.main(feat_small)
+
+
+class ShuffleNetSLE(ShuffleNetV2):
+    def __init__(self, net_size, *args, **kwargs):
+        super().__init__(net_size, *args, **kwargs)
+        out_channels = configs[net_size]['out_channels']
+        self.sle_1 = SLEBlock(24, out_channels[0])  # maxpool and stage2
+        self.sle_2 = SLEBlock(out_channels[0], out_channels[1])  # stage2 to stage3
+        self.sle_3 = SLEBlock(out_channels[1], out_channels[2])  # stage3 to stage4
+
+    def forward(self, x):
+        c1 = F.relu(self.bn1(self.conv1(x)))
+        # out = F.max_pool2d(out, 3, stride=2, padding=1)
+        s2 = self.layer1(c1)
+        s2 = self.sle_1(c1, s2)
+        s3 = self.layer2(s2)
+        s3 = self.sle_2(s2, s3)
+        s4 = self.layer3(s3)
+        s4 = self.sle_3(s3, s4)
+        c5 = F.relu(self.bn2(self.conv2(s4)))
+        out = F.avg_pool2d(c5, 4)
+        out = out.view(out.size(0), -1)
+        out = self.linear(out)
+        return out
+
+
 def init_params(net):
     """Init layer parameters."""
     for m in net.modules():
@@ -169,7 +266,15 @@ configs = {
     }
 }
 
+
+def test(net):
+    x = torch.randn(3, 3, 32, 32)
+    y = net(x)
+    print(y.shape)
+
+
 if __name__ == "__main__":
     torch.cuda.empty_cache()
-    mod = ShuffleNetV2(net_size=0.5)
+    mod = ShuffleNetSLE(net_size=0.5)
     init_params(mod)
+    test(mod)
