@@ -169,7 +169,7 @@ def train(model, device, batch_size, lr, beta0, beta1, weight_decay, checkpoint=
                     "opt": optimizer.state_dict()}, f"{models_path}{epoch_formatted}.pth")
 
         if plot:
-            plot_training_curve(results, save=False, save_path=f"{csv_path}curve")
+            plot_training_curve(results, save=True, save_path=f"{csv_path}curve")
 
         # scheduler.step(epoch_flat["loss_train"])
 

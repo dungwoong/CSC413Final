@@ -1,2 +1,5 @@
 .idea/*
 __pycache__/*
+results/ShuffleNetV2/models/*
+results/ShuffleNetSLE/models/*
+results/*
