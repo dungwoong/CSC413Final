@@ -54,3 +54,8 @@ df1 %>% filter(model == "SE") %>%
        y="Maximum top 1 accuracy",
        x="Learning Rate")
 ```
+
+```{r}
+df2 <- read.csv("model_stats.csv")
+df2
+```

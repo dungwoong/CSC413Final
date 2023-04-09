@@ -181,8 +181,9 @@ class ShuffleNetSE(ShuffleNetV2):
         super().__init__(*args, **kwargs)
 
     def _make_layer(self, out_channels, num_blocks):
-        reduction = 8 if self.stage == 2 else 16
-        layers = [DownBlock(self.in_channels, out_channels)]
+        reduction = 4 if self.stage == 2 else 8
+        layers = [DownBlock(self.in_channels, out_channels),
+                  SEBlock(out_channels, reduction)]
         for i in range(num_blocks):
             layers.append(BasicBlock(out_channels))
             layers.append(SEBlock(out_channels, reduction))
