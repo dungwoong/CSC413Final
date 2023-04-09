@@ -190,8 +190,9 @@ class ShuffleNetSE(ShuffleNetV2):
                   SEBlock(out_channels, reduction)]
         for i in range(num_blocks):
             layers.append(BasicBlock(out_channels))
-            layers.append(SEBlock(out_channels, reduction))
             self.in_channels = out_channels
+        # add a single SE Block at the end after other blocks
+        layers.append(SEBlock(out_channels, reduction))
         self.stage += 1
         return nn.Sequential(*layers)
 
