@@ -176,12 +176,16 @@ class SEBlock(nn.Module):
 
 
 class ShuffleNetSE(ShuffleNetV2):
-    def __init__(self, *args, **kwargs):
-        self.stage = 2
-        super().__init__(*args, **kwargs)
+    def __init__(self, net_size, *args, **kwargs):
+        self.stage = 2  # start at stage 2
+        super().__init__(net_size, *args, **kwargs)
+        self.se_1 = SEBlock(24, reduction=1)
+        out_channels = configs[net_size]['out_channels']
+        self.se_2 = SEBlock(out_channels[3], reduction=16)
 
     def _make_layer(self, out_channels, num_blocks):
-        reduction = 4 if self.stage == 2 else 8
+        reductions = [4, 8, 16]
+        reduction = reductions[self.stage - 2]
         layers = [DownBlock(self.in_channels, out_channels),
                   SEBlock(out_channels, reduction)]
         for i in range(num_blocks):
@@ -190,6 +194,20 @@ class ShuffleNetSE(ShuffleNetV2):
             self.in_channels = out_channels
         self.stage += 1
         return nn.Sequential(*layers)
+
+    def forward(self, x):
+        out = F.relu(self.bn1(self.conv1(x)))
+        # out = F.max_pool2d(out, 3, stride=2, padding=1)
+        out = self.se_1(out)
+        out = self.layer1(out)
+        out = self.layer2(out)
+        out = self.layer3(out)
+        out = F.relu(self.bn2(self.conv2(out)))
+        out = self.se_2(out)
+        out = F.avg_pool2d(out, 4)
+        out = out.view(out.size(0), -1)
+        out = self.linear(out)
+        return out
 
 
 class Swish(nn.Module):
@@ -291,6 +309,6 @@ def test(net):
 
 if __name__ == "__main__":
     torch.cuda.empty_cache()
-    mod = ShuffleNetSLE(net_size=0.5)
+    mod = ShuffleNetSE(net_size=0.5)
     init_params(mod)
     test(mod)
