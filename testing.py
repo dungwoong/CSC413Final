@@ -1,4 +1,4 @@
-import shufflenetv2
+from shufflenet_alt import ShuffleNetV2, ShuffleNetSE, ShuffleNetSLE
 import torch
 from ptflops import get_model_complexity_info
 import pandas as pd
@@ -11,7 +11,7 @@ def get_device():
 
 
 def test_model_works(mod, device, batch_size=1):
-    print(f"Testing {mod.label}")
+    print(f"Testing {mod.__class__}")
     if device == 'cuda':
         torch.cuda.empty_cache()
     # basic test, makes sure model's forward() method actually works
@@ -25,22 +25,15 @@ def get_params(mods, outputpath):
            "MMac": []}
     for mod in mods:
         macs, params = get_model_complexity_info(mod, (3, 32, 32), as_strings=False, verbose=False)
-        ret['Model'].append(mod.label)
+        ret['Model'].append(mod.__class__)
         ret['Parameters'].append(params)
         ret['MMac'].append(macs)
     d = pd.DataFrame(ret)
     d.to_csv(outputpath, index=False)
 
 
-def test_all_models():
-    d = get_device()
-    test_model_works(shufflenetv2.base_model(), d)
-    test_model_works(shufflenetv2.se_model(), d)
-    test_model_works(shufflenetv2.sle_model(), d)
-
-
 if __name__ == '__main__':
     d = get_device()
-    get_params([shufflenetv2.base_model(),
-                shufflenetv2.se_model(),
-                shufflenetv2.sle_model()], outputpath="model_stats.csv")
+    get_params([ShuffleNetV2(net_size=1),
+                ShuffleNetSE(net_size=1),
+                ShuffleNetSLE(net_size=1)], outputpath="model_stats.csv")

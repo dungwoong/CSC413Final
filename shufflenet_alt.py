@@ -154,10 +154,25 @@ class SEBlock(nn.Module):
         self.mid_channels = mid_channels
 
         self.flops = None
+        self._init_weights()
 
     def forward(self, x):
         w = self.se_block(x)
         return w * x
+
+    def _init_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                init.kaiming_normal_(m.weight, mode='fan_out')
+                if m.bias is not None:
+                    init.constant_(m.bias, 0)
+            elif isinstance(m, nn.BatchNorm2d):
+                init.constant_(m.weight, 1)
+                init.constant_(m.bias, 0)
+            elif isinstance(m, nn.Linear):
+                init.normal_(m.weight, std=1e-3)
+                if m.bias is not None:
+                    init.constant_(m.bias, 0)
 
 
 class ShuffleNetSE(ShuffleNetV2):

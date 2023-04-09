@@ -5,26 +5,52 @@ date: "09/04/2023"
 output: html_document
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+```{r}
+df1 <- read.csv("results/summary.csv")
+df1
+```
+```{r}
+library(tidyverse)
+
+df1 %>% filter(model == "Base") %>% 
+  mutate(batch_size = as.factor(batch_size)) %>% 
+  ggplot(aes(x=lr, y=max_val_top1_acc, color=batch_size)) +
+  geom_point() +
+  geom_line() +
+  theme_minimal() +
+  ylim(0.7, 0.95) +
+  labs(title="Base model accuracy by learning rate and batch size",
+       y="Maximum top 1 accuracy",
+       x="Learning Rate")
 ```
 
-## R Markdown
+So low learning rate, smaller BS good because more gradient updates I guess, the lr is already low so the updates aren't dominated by noise. High lr large batch size is better because it becomes noise dominated. We find that 1e-3 batch size 64 yielded the best results, with 89.97% maximum validation accuracy achieved.
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
-
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
-
-```{r cars}
-summary(cars)
+```{r}
+df1 %>% filter(model == "SLE") %>% 
+  mutate(batch_size = as.factor(batch_size)) %>% 
+  ggplot(aes(x=lr, y=max_val_top1_acc, color=batch_size)) +
+  geom_point() +
+  geom_line() +
+  theme_minimal() +
+  ylim(0.7, 0.95) +
+  labs(title="SLE model accuracy by learning rate and batch size",
+       y="Maximum top 1 accuracy",
+       x="Learning Rate")
 ```
+Same results with SLE model, but we see that the batch size has a larger effect on the results with suboptimal learning rates and has less of an effect with the optimal(1e-3) learning rate. We were able to achieve slightly higher accuracy compared to the base model, of 90.19% maximum validation accuracy.
 
-## Including Plots
+I think this was originally used in GAN, where it uses deeper layers with more channels to excite later layers, so the motivation to skip layers is valid. Here, deeper layers have less channels, so exciting later layers based on it probably doesn't have much of an effect, and takes a lot of computation.
 
-You can also embed plots, for example:
-
-```{r pressure, echo=FALSE}
-plot(pressure)
+```{r}
+df1 %>% filter(model == "SE") %>% 
+  mutate(batch_size = as.factor(batch_size)) %>% 
+  ggplot(aes(x=lr, y=max_val_top1_acc, color=batch_size)) +
+  geom_point() +
+  geom_line() +
+  theme_minimal() +
+  ylim(0.7, 0.95) +
+  labs(title="SLE model accuracy by learning rate and batch size",
+       y="Maximum top 1 accuracy",
+       x="Learning Rate")
 ```
-
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
