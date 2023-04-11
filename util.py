@@ -57,6 +57,7 @@ def plot_training_curve(df, tr_column='loss_train', val_column='loss_test', val_
     # show the plot
     if save:
         plt.savefig(f'{save_path}.jpg')
+        plt.close()
     else:
         plt.show()
 

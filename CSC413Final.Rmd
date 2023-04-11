@@ -50,7 +50,7 @@ df1 %>% filter(model == "SE") %>%
   geom_line() +
   theme_minimal() +
   ylim(0.7, 0.95) +
-  labs(title="SLE model accuracy by learning rate and batch size",
+  labs(title="SE model accuracy by learning rate and batch size",
        y="Maximum top 1 accuracy",
        x="Learning Rate")
 ```

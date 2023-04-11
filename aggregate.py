@@ -106,4 +106,4 @@ if __name__ == "__main__":
     #     help="output file"
     # )
     # args = parser.parse_args()
-    run("results/ShuffleNetSE", model_label="SLE")
+    run("results/se_alt", model_label="SE")

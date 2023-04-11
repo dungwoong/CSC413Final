@@ -1,15 +1,15 @@
 import argparse
 import time
+
 import pandas as pd
 import torch
-from torch import nn
-import torchvision
 import torch.optim as optim
-from torch.utils.data import TensorDataset, DataLoader
-from shufflenetv2 import base_model, se_model, sle_model
+import torchvision
+from torch import nn
+from torch.utils.data import TensorDataset
+
 from shufflenet_alt import ShuffleNetV2, ShuffleNetSE, ShuffleNetSLE, init_params
 from util import top1_error, top3_error, plot_training_curve
-import sys
 
 mean, std = (0.4914, 0.4822, 0.4465), (0.247, 0.243, 0.261)
 
