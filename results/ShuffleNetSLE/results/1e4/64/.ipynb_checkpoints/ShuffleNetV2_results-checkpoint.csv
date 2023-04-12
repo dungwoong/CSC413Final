@@ -1,0 +1,2 @@
+,loss_train,loss_test,top1_acc_train,top1_acc_test,top3_acc_train,top3_acc_test,running_corrects_1_train,running_corrects_1_test,running_corrects_3_train,running_corrects_3_test,dataset_sizes_train,dataset_sizes_test,time,batches_train,batches_test,epoch
+0,1.8968033588409423,1.6509482841491698,0.25944,0.3552,0.60292,0.727,12972.0,3552.0,30146.0,7270.0,50000,10000,51.00862693786621,782,157,0

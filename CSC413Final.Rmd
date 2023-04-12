@@ -9,19 +9,22 @@ output: html_document
 df1 <- read.csv("results/summary.csv")
 df1
 ```
-```{r}
+```{r, fig.width=10, fig.height=4}
 library(tidyverse)
 
-df1 %>% filter(model == "Base") %>% 
+df1 %>% 
   mutate(batch_size = as.factor(batch_size)) %>% 
   ggplot(aes(x=lr, y=max_val_top1_acc, color=batch_size)) +
   geom_point() +
   geom_line() +
   theme_minimal() +
+  facet_wrap(~model) +
   ylim(0.7, 0.95) +
-  labs(title="Base model accuracy by learning rate and batch size",
+  labs(title="Model accuracy by learning rate and batch size",
        y="Maximum top 1 accuracy",
-       x="Learning Rate")
+       x="Learning Rate") +
+  scale_x_continuous(labels = function(x) format(x, scientific = TRUE)) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
 ```
 
 So low learning rate, smaller BS good because more gradient updates I guess, the lr is already low so the updates aren't dominated by noise. High lr large batch size is better because it becomes noise dominated. We find that 1e-3 batch size 64 yielded the best results, with 89.97% maximum validation accuracy achieved.

@@ -1,0 +1,10 @@
+keys,values
+label,ShuffleNetV2
+batch_size,128
+lr,0.0001
+beta0,0.9
+beta1,0.999
+weight_decay,0.0001
+lr_decay,10
+lr_decay_freq,[]
+lr_decay_patience,10

@@ -1,0 +1,4 @@
+Model,Parameters,MMac
+<class 'shufflenet_alt.ShuffleNetV2'>,1263854,46128266.0
+<class 'shufflenet_alt.ShuffleNetSE'>,1493204,46502774.0
+<class 'shufflenet_alt.ShuffleNetSLE'>,3743934,48677466.0

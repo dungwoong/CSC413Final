@@ -1,5 +1,6 @@
 # Shufflenet https://github.com/pytorch/vision/blob/main/torchvision/models/shufflenetv2.py
 # FastGAN https://github.com/odegeasslbc/FastGAN-pytorch/blob/main/models.py
+# This code was not used for the final project. We opted for a different implementation
 
 from functools import partial
 import math
