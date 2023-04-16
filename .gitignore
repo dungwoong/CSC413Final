@@ -2,3 +2,4 @@
 __pycache__/*
 results/ShuffleNetV2/models/*
 results/ShuffleNetSLE/models/*
+archive/*
