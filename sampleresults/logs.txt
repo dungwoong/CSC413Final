@@ -1,1 +1,0 @@
-added weights_init, switched to x0.5 for faster training, added random scaling and random horizontal flips to training data.
