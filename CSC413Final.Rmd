@@ -9,7 +9,7 @@ output: html_document
 df1 <- read.csv("results/summary.csv")
 df1
 ```
-```{r, fig.width=10, fig.height=4}
+```{r, fig.width=7, fig.height=4}
 library(tidyverse)
 
 df1 %>% 
@@ -20,11 +20,12 @@ df1 %>%
   theme_minimal() +
   facet_wrap(~model) +
   ylim(0.7, 0.95) +
-  labs(title="Model accuracy by learning rate and batch size",
+  labs(title="Maxiumum validation accuracy by learning rate\n and batch size",
        y="Maximum top 1 accuracy",
        x="Learning Rate") +
   scale_x_continuous(labels = function(x) format(x, scientific = TRUE)) +
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
+        plot.title = element_text(size=18, family=windowsFonts()$serif))
 ```
 
 So low learning rate, smaller BS good because more gradient updates I guess, the lr is already low so the updates aren't dominated by noise. High lr large batch size is better because it becomes noise dominated. We find that 1e-3 batch size 64 yielded the best results, with 89.97% maximum validation accuracy achieved.
@@ -59,6 +60,6 @@ df1 %>% filter(model == "SE") %>%
 ```
 
 ```{r}
-df2 <- read.csv("model_stats.csv")
-df2
+# df2 <- read.csv("model_stats.csv")
+# df2
 ```

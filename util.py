@@ -1,6 +1,7 @@
 import torch
 import pandas as pd
 import matplotlib.pyplot as plt
+from ptflops import get_model_complexity_info
 
 
 def top3_error(predictions, targets):  # even though it says top5, it's top3 ok...
@@ -64,6 +65,19 @@ def plot_training_curve(df, tr_column='loss_train', val_column='loss_test', val_
 
 def plot_loss_acc_curve(*args, **kwargs):
     plot_training_curve(*args, val_column='top1_acc_test', val_label='Top 1 Accuracy(test)', **kwargs)
+
+
+def get_params_info(mods, outputpath):
+    ret = {"Model": [],
+           "Parameters": [],
+           "MMac": []}
+    for mod in mods:
+        macs, params = get_model_complexity_info(mod, (3, 32, 32), as_strings=False, verbose=False)
+        ret['Model'].append(mod.__class__)
+        ret['Parameters'].append(params)
+        ret['MMac'].append(macs)
+    d = pd.DataFrame(ret)
+    d.to_csv(outputpath, index=False)
 
 
 # top5 should be 100%, top1 should be ~20%

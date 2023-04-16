@@ -1,3 +1,8 @@
+"""
+Aggregates information in the intermediate raw data CSVs
+"""
+
+
 import argparse
 import os
 import pandas as pd

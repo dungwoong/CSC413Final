@@ -1,8 +1,11 @@
-'''ShuffleNetV2 in PyTorch.
+"""ShuffleNetV2 in PyTorch.
 See the paper "ShuffleNet V2: Practical Guidelines for Efficient CNN Architecture Design" for more details.
-'''
+"""
 
 # Source: https://github.com/kuangliu/pytorch-cifar/blob/master/models/shufflenetv2.py
+# FastGAN/SLE modules from https://github.com/odegeasslbc/FastGAN-pytorch/blob/main/models.py
+
+
 import torch
 import torch.nn as nn
 import torch.nn.init as init
@@ -15,7 +18,7 @@ class ShuffleBlock(nn.Module):
         self.groups = groups
 
     def forward(self, x):
-        '''Channel shuffle: [N,C,H,W] -> [N,g,C/g,H,W] -> [N,C/g,g,H,w] -> [N,C,H,W]'''
+        """Channel shuffle: [N,C,H,W] -> [N,g,C/g,H,W] -> [N,C/g,g,H,w] -> [N,C,H,W]"""
         N, C, H, W = x.size()
         g = self.groups
         return x.view(N, g, C // g, H, W).permute(0, 2, 1, 3, 4).reshape(N, C, H, W)
@@ -176,6 +179,9 @@ class SEBlock(nn.Module):
 
 
 class ShuffleNetSE(ShuffleNetV2):
+    """
+    ShuffleNet Model, has SE blocks after every stage
+    """
     def __init__(self, net_size, *args, **kwargs):
         self.stage = 2  # start at stage 2
         super().__init__(net_size, *args, **kwargs)
@@ -242,6 +248,9 @@ class SLEBlock(nn.Module):
 
 
 class ShuffleNetSLE(ShuffleNetV2):
+    """
+    ShuffleNet with SLE modules, as described in the paper.
+    """
     def __init__(self, net_size, *args, **kwargs):
         super().__init__(net_size, *args, **kwargs)
         out_channels = configs[net_size]['out_channels']
