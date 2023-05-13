@@ -1,5 +1,7 @@
 # Comparing the effects of squeeze-and-excitation and skip-layer-excitation blocks in ShuffleNetV2
 
+[writeup.pdf](writeup.pdf)
+
 # Code Files
 
  - shufflenet_alt.py: implementation of shufflenet, SE and SLE
